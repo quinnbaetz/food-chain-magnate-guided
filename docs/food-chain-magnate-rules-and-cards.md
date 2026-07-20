@@ -114,23 +114,23 @@ Legend:
 | Pizza Cook | 6 | Kitchen | No | Yes | No | - | Produces 3 pizzas. |
 | Pizza Chef | 3 | Kitchen | No | Yes | Yes | - | Produces 8 pizzas. |
 
-Salary note: public summaries describe entry-level employees as salary-free and trained employees as salary-bearing. Before implementing a visual card renderer, verify the salary icon from card images or a physical copy.
+Salary note: entry-level employees are salary-free. Trained employees bear a salary icon and normally cost $5 at Payday.
 
 ### Training Paths
 
 | Track | Path |
 | --- | --- |
-| Manager | Management Trainee -> Junior Vice President -> Vice President -> Senior Vice President -> Executive Vice President |
-| Pricing | Pricing Manager -> Luxuries Manager or Discount Manager |
-| Recruiting | Recruiting Girl -> Recruiting Manager -> HR Director |
-| Training | Trainer -> Coach -> Guru |
+| Expansion / finance | Waitress -> New Business Developer -> Local Manager -> Regional Manager -> CFO |
+| Management | Management Trainee -> Junior Vice President -> Vice President -> Senior Vice President -> Executive Vice President |
+| Pricing | Pricing Manager -> Luxuries Manager -> Discount Manager |
+| Recruiting branch | Junior Vice President -> Recruiting Manager; Executive Vice President -> HR Director |
+| Training branch | Junior Vice President -> Coach; Vice President -> Guru |
 | Buyers | Errand Boy -> Cart Operator -> Truck Driver -> Zeppelin Pilot |
 | Marketing | Marketing Trainee -> Campaign Manager -> Brand Manager -> Brand Director |
 | Kitchen | Kitchen Trainee -> Burger Cook -> Burger Chef |
 | Kitchen | Kitchen Trainee -> Pizza Cook -> Pizza Chef |
-| Other trained jobs | Non-entry employees outside the marketeer/kitchen/buyer tracks are trained from manager cards. The exact card-bottom arrows for Waitress, New Business Developer, Local Manager, Regional Manager, and CFO should be verified before implementation. |
 
-Implementation note: the rulebook says marketeers, kitchen staff, and buyers each have their own upgrade track; other non-entry employees are trained from managers. Use card-bottom training arrows as final authority.
+Recruiting Girl and Trainer are entry employees that provide their own actions; the more powerful recruiting and training cards branch from manager cards as shown above.
 
 ### Milestone Cards
 
@@ -336,7 +336,6 @@ Rules that will need careful tests:
 ## Open Verification Items
 
 - Confirm every salary icon against physical/card-image sources before rendering final digital cards.
-- Confirm exact training arrows printed on each card, especially "other" roles trained from Management Trainee.
 - Confirm whether the target implementation should include common FAQ rulings such as negative prices and bankruptcy handling.
 - Decide whether the app should model physical component limits strictly or use FAQ-unlimited proxies for food/drinks and milestones.
 - Decide whether to implement the introductory game as a learn-mode preset.
