@@ -73,6 +73,26 @@ export const EMPLOYEES: Record<string, Employee> = {
 
 export const ENTRY_EMPLOYEES = Object.values(EMPLOYEES).filter((employee) => employee.entry);
 export const DRINKS: Drink[] = ["soda", "lemonade", "beer"];
+export const MILESTONE_BONUSES: Record<string, string> = {
+  "First to hire 3 people in 1 turn": "Immediately gain 2 Management Trainees on the beach. They may still be trained this turn.",
+  "First to throw away drink/food": "Freezer: keep up to 10 food and drink tokens during future Cleanup phases.",
+  "First Waitress played": "Every Waitress earns $5 instead of $3, including the Waitress that earned this milestone.",
+  "First to have $20": "You may inspect every player’s face-down bank reserve card.",
+  "First to have $100": "Your CEO acts as a CFO from the next round: add 50% to income, rounded up. You cannot keep or train a CFO.",
+  "First to lower prices": "Your unit price is permanently $1 lower. This modifier is mandatory.",
+  "First to train someone": "Pay $15 less in salaries every Payday, to a minimum salary bill of $0.",
+  "First Burger produced": "Immediately gain a Burger Cook from supply and place it on the beach.",
+  "First Pizza produced": "Immediately gain a Pizza Cook from supply and place it on the beach.",
+  "First Errand Boy played": "Every buyer collects 1 additional drink. An Errand Boy still chooses only one drink type.",
+  "First Cart Operator played": "Cart Operators, Truck Drivers, and Zeppelin Pilots gain +1 range.",
+  "First to pay $20 or more in salaries": "Training actions from multiple Trainers, Coaches, or Gurus may be combined on one employee.",
+  "First Billboard placed": "Marketeers cost no salary and every campaign is eternal. Its marketeer remains busy permanently.",
+  "First Burger marketed": "Earn an extra $5 for every burger sold. Gardens do not double this bonus.",
+  "First Pizza marketed": "Earn an extra $5 for every pizza sold. Gardens do not double this bonus.",
+  "First Drink marketed": "Earn an extra $5 for every drink sold, regardless of type. Gardens do not double this bonus.",
+  "First Airplane campaign": "Count 2 additional open slots when determining who chooses turn order first.",
+  "First Radio campaign": "Each radio places 2 matching demand tokens on every reached house when capacity allows.",
+};
 const GOODS: Good[] = ["burger", "pizza", "soda", "lemonade", "beer"];
 
 type TileTemplate = { id: string; roads: string[]; house?: { number: number; row: number; col: number }; sources?: { good: Drink; row: number; col: number }[] };

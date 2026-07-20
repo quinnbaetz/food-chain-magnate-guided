@@ -52,5 +52,7 @@ test("keeps the base-game roster, goods, and map data in source", async () => {
   assert.match(page, /Printed entrance/);
   assert.match(page, /TURN ORDER TRACK/);
   assert.match(page, /No route needed/);
+  assert.match(game, /MILESTONE_BONUSES/);
+  assert.match(page, /BONUSES ARE MANDATORY/);
   assert.match(layout, /Food Chain Magnate · Guided Tabletop/);
 });

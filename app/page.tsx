@@ -8,7 +8,7 @@ import {
   RefreshCw, Store, Truck, UserMinus, Users, X,
 } from "lucide-react";
 import {
-  DRINKS, EMPLOYEES, ENTRY_EMPLOYEES, PHASE_COPY, addGarden,
+  DRINKS, EMPLOYEES, ENTRY_EMPLOYEES, MILESTONE_BONUSES, PHASE_COPY, addGarden,
   addHouse, advance, canRotateStartingRestaurant, capacity, chooseTurnPosition, cloneGame, expandRestaurant, fireEmployee, hire,
   initialGame, isValidRestaurantSpot, market, moveStartingRestaurant, openSlots, placeStartingRestaurant,
   price, procureFromSource, produce, reachableSources, roadDistance, rotateStartingRestaurant, toggleActive,
@@ -134,6 +134,6 @@ export default function Home() {
   const mutate = (fn: (next: GameState) => void) => setGame((current) => { const next = cloneGame(current); fn(next); return next; });
   const phase = PHASE_COPY[game.phase]; const bankPct = Math.max(0, Math.min(100, (game.bank / (game.bankBreaks ? 800 : 200)) * 100)); const milestones = game.players[0].milestones;
   return <main><header className="topbar"><div className="brand"><span className="brand-mark"><Store size={20} /></span><div><strong>FOOD CHAIN</strong><span>MAGNATE</span></div></div><div className="round-status"><span>Round <b>{game.round}</b></span><i /><span>{phase.title}</span></div><div className="bank-status"><span><Banknote size={16} />Bank</span><div><i style={{ width: `${bankPct}%` }} /></div><b>${Math.max(0, game.bank)}</b><small>{game.bankBreaks}/2 breaks</small></div><button className="icon-button" aria-label="Open rules" title="Rules" onClick={() => setRulesOpen(true)}><BookOpen size={18} /></button></header>
-    <div className="game-shell"><div className="main-table"><PlayerStrip game={game} /><Board game={game} mutate={mutate} /><Workbench key={`${game.round}-${game.phase}`} game={game} mutate={mutate} />{milestones.length > 0 && <section className="milestones"><span className="section-label">YOUR MILESTONES</span>{milestones.map((milestone) => <span key={milestone}><Crown size={13} />{milestone}</span>)}</section>}</div><PhaseRail game={game} mutate={mutate} openRules={() => setRulesOpen(true)} /></div>
+    <div className="game-shell"><div className="main-table"><PlayerStrip game={game} /><Board game={game} mutate={mutate} /><Workbench key={`${game.round}-${game.phase}`} game={game} mutate={mutate} />{milestones.length > 0 && <section className="milestones"><span className="section-label">YOUR MILESTONES · BONUSES ARE MANDATORY</span>{milestones.map((milestone) => <article key={milestone} className="milestone-card"><Crown size={15} /><div><strong>{milestone}</strong><small>{MILESTONE_BONUSES[milestone] ?? "This milestone’s bonus applies for the rest of the game."}</small></div></article>)}</section>}</div><PhaseRail game={game} mutate={mutate} openRules={() => setRulesOpen(true)} /></div>
     {!game.gameStarted && <StartDialog onStart={(reserve, slots) => setGame({ ...initialGame(reserve, slots, true), gameStarted: true })} />}{rulesOpen && <RulesDrawer onClose={() => setRulesOpen(false)} />}</main>;
 }
