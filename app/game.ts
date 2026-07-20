@@ -1,6 +1,7 @@
 export type Good = "burger" | "pizza" | "soda" | "lemonade" | "beer";
 export type Drink = "soda" | "lemonade" | "beer";
 export type CampaignType = "billboard" | "mailbox" | "airplane" | "radio";
+export type CampaignOrientation = "horizontal" | "vertical";
 export type Phase = "setup" | "restructure" | "order" | "work" | "dinner" | "payday" | "marketing" | "cleanup" | "gameover";
 export type CellKind = "lot" | "road" | "house" | "source";
 
@@ -131,9 +132,9 @@ export type Player = {
   id: number; name: string; chain: string; color: string; cash: number; reserve: number; reserveSlots: number;
   roster: string[]; active: number[]; stock: Record<Good, number>; milestones: string[]; restaurants: Restaurant[]; earnedThisRound: number;
 };
-export type Campaign = { id: number; playerId: number; targetHouseId: number; good: Good; type: CampaignType; remaining: number; eternal?: boolean; marketeerIndex: number };
+export type Campaign = { id: number; playerId: number; targetHouseId?: number; row?: number; col?: number; orientation?: CampaignOrientation; good: Good; type: CampaignType; remaining: number; eternal?: boolean; marketeerIndex: number };
 export type WorkState = { hires: number; training: number; produced: number[]; marketed: number[]; builders: number[]; restaurantManagers: number[]; hiresMade: number; botsActed: number[] };
-export type OrderSelection = { chooserIds: number[]; positions: (number | null)[]; nextChooserIndex: number };
+export type OrderSelection = { chooserIds: number[]; positions: (number | null)[]; nextChooserIndex: number; pendingUserPosition: number | null };
 export type GameState = {
   round: number; phase: Phase; bank: number; bankBreaks: number; ceoSlots: number;
   players: Player[]; board: BoardState; houses: House[]; sources: DrinkSource[]; campaigns: Campaign[]; turnOrder: number[];
@@ -331,15 +332,58 @@ export function procureFromSource(game: GameState, rosterIndex: number, sourceId
   addLog(game, `${player.chain} collects ${amount} ${source.good} from source ${source.id}.`, playerId === 0 ? "good" : "bot");
 }
 
-export function market(game: GameState, rosterIndex: number, houseId: number, good: Good, type: CampaignType = "billboard", playerId = 0) {
+function campaignDimensions(type: CampaignType, orientation: CampaignOrientation = "horizontal") {
+  if (type === "billboard") return orientation === "horizontal" ? { rows: 1, cols: 2 } : { rows: 2, cols: 1 };
+  if (type === "mailbox" || type === "radio") return { rows: 2, cols: 2 };
+  return { rows: 1, cols: 1 };
+}
+
+export function campaignCells(campaign: Pick<Campaign, "type" | "row" | "col" | "orientation">) {
+  if (campaign.row === undefined || campaign.col === undefined) return [];
+  const size = campaignDimensions(campaign.type, campaign.orientation);
+  const cells: { row: number; col: number }[] = [];
+  for (let row = campaign.row; row < campaign.row + size.rows; row += 1) for (let col = campaign.col; col < campaign.col + size.cols; col += 1) cells.push({ row, col });
+  return cells;
+}
+
+export function isValidCampaignPlacement(game: GameState, rosterIndex: number, type: CampaignType, row: number, col: number, orientation: CampaignOrientation = "horizontal", playerId = 0) {
+  if (type === "airplane") return false;
+  const player = game.players[playerId]; const employee = EMPLOYEES[player.roster[rosterIndex]];
+  if (!employee?.campaigns?.includes(type)) return false;
+  const cells = campaignCells({ type, row, col, orientation });
+  if (!cells.length || cells.some((cell) => cell.row < 0 || cell.col < 0 || cell.row >= game.board.rows || cell.col >= game.board.cols || game.board.cells[cell.row][cell.col].kind !== "lot")) return false;
+  if (cells.some((cell) => game.players.some((owner) => owner.restaurants.some((restaurant) => cell.row >= restaurant.row && cell.row < restaurant.row + 2 && cell.col >= restaurant.col && cell.col < restaurant.col + 2)))) return false;
+  if (cells.some((cell) => game.campaigns.some((campaign) => campaignCells(campaign).some((occupied) => occupied.row === cell.row && occupied.col === cell.col)))) return false;
+  const costs = roadCosts(game.board, openEntrances(player));
+  return cells.some((cell) => neighbors(cell.row, cell.col, game.board).some(([roadRow, roadCol]) => {
+    if (game.board.cells[roadRow][roadCol].kind !== "road") return false;
+    if ((employee.range ?? 99) >= 99) return true;
+    const roadCost = costs.get(`${roadRow},${roadCol}`) ?? Infinity;
+    const roadTile = tileOf(roadRow, roadCol); const campaignTile = tileOf(cell.row, cell.col);
+    return roadCost + (roadTile.row !== campaignTile.row || roadTile.col !== campaignTile.col ? 1 : 0) <= (employee.range ?? 0);
+  }));
+}
+
+export function validCampaignPlacements(game: GameState, rosterIndex: number, type: CampaignType, orientation: CampaignOrientation = "horizontal", playerId = 0) {
+  const result: { row: number; col: number }[] = [];
+  for (let row = 0; row < game.board.rows; row += 1) for (let col = 0; col < game.board.cols; col += 1) if (isValidCampaignPlacement(game, rosterIndex, type, row, col, orientation, playerId)) result.push({ row, col });
+  return result;
+}
+
+export function market(game: GameState, rosterIndex: number, placement: number | { row: number; col: number; orientation?: CampaignOrientation }, good: Good, type: CampaignType = "billboard", playerId = 0) {
   const player = game.players[playerId]; const employee = EMPLOYEES[player.roster[rosterIndex]];
   if (!employee?.campaigns?.includes(type) || (playerId === 0 && !game.work.marketed.includes(rosterIndex))) return;
+  if (typeof placement !== "number" && !isValidCampaignPlacement(game, rosterIndex, type, placement.row, placement.col, placement.orientation, playerId)) return;
+  if (typeof placement === "number" && (type !== "airplane" || !game.houses.some((house) => house.id === placement))) return;
   const eternal = player.milestones.includes("First Billboard placed") || (type === "billboard" && !game.claimed.includes("First Billboard placed"));
-  game.campaigns.push({ id: Math.max(0, ...game.campaigns.map((item) => item.id)) + 1, playerId, targetHouseId: houseId, good, type, remaining: employee.maxDuration ?? 1, eternal, marketeerIndex: rosterIndex });
+  const location = typeof placement === "number" ? { targetHouseId: placement } : { row: placement.row, col: placement.col, orientation: placement.orientation ?? "horizontal" };
+  const campaign: Campaign = { id: Math.max(0, ...game.campaigns.map((item) => item.id)) + 1, playerId, ...location, good, type, remaining: employee.maxDuration ?? 1, eternal, marketeerIndex: rosterIndex };
+  game.campaigns.push(campaign);
   if (playerId === 0) game.work.marketed = game.work.marketed.filter((index) => index !== rosterIndex);
   if (type === "billboard") award(game, player, "First Billboard placed"); if (type === "airplane") award(game, player, "First Airplane campaign"); if (type === "radio") award(game, player, "First Radio campaign");
   award(game, player, good === "burger" ? "First Burger marketed" : good === "pizza" ? "First Pizza marketed" : "First Drink marketed");
-  addLog(game, `${player.chain} starts a ${type} advertising ${good} near house ${houseId}.`, playerId === 0 ? "good" : "bot");
+  const reached = campaignHouses(game, campaign).length;
+  addLog(game, `${player.chain} places a ${type} advertising ${good}${typeof placement === "number" ? ` over house ${placement}` : ` at row ${placement.row + 1}, column ${placement.col + 1}`} (${reached} house${reached === 1 ? "" : "s"} in reach).`, playerId === 0 ? "good" : "bot");
 }
 
 function restaurantEntranceCandidates(game: GameState, row: number, col: number) {
@@ -467,12 +511,26 @@ export function resolvePayday(game: GameState) {
 }
 
 function campaignHouses(game: GameState, campaign: Campaign) {
+  const physical = campaignCells(campaign);
+  if (campaign.type === "billboard") return game.houses.filter((house) => physical.some((cell) => {
+    for (let row = house.row; row < house.row + 2; row += 1) for (let col = house.col; col < house.col + 2; col += 1) if (Math.abs(row - cell.row) + Math.abs(col - cell.col) === 1) return true;
+    return false;
+  }));
+  if (campaign.type === "mailbox" && physical.length) {
+    const reached = new Set(physical.map((cell) => `${cell.row},${cell.col}`)); const queue = [...physical];
+    while (queue.length) {
+      const cell = queue.shift()!;
+      for (const [row, col] of neighbors(cell.row, cell.col, game.board)) { const key = `${row},${col}`; if (game.board.cells[row][col].kind !== "road" && !reached.has(key)) { reached.add(key); queue.push({ row, col }); } }
+    }
+    return game.houses.filter((house) => { for (let row = house.row; row < house.row + 2; row += 1) for (let col = house.col; col < house.col + 2; col += 1) if (reached.has(`${row},${col}`)) return true; return false; });
+  }
+  if (campaign.type === "radio" && physical.length) {
+    const coveredTiles = physical.map((cell) => tileOf(cell.row, cell.col));
+    return game.houses.filter((house) => { const tile = tileOf(house.row, house.col); return coveredTiles.some((origin) => Math.abs(origin.row - tile.row) <= 1 && Math.abs(origin.col - tile.col) <= 1); });
+  }
   const target = game.houses.find((house) => house.id === campaign.targetHouseId); if (!target) return [];
   const tile = tileOf(target.row, target.col);
-  if (campaign.type === "billboard") return [target];
-  if (campaign.type === "mailbox") return game.houses.filter((house) => { const other = tileOf(house.row, house.col); return other.row === tile.row && other.col === tile.col; });
-  if (campaign.type === "airplane") return game.houses.filter((house) => tileOf(house.row, house.col).row === tile.row);
-  return game.houses.filter((house) => { const other = tileOf(house.row, house.col); return Math.abs(other.row - tile.row) <= 1 && Math.abs(other.col - tile.col) <= 1; });
+  return game.houses.filter((house) => tileOf(house.row, house.col).row === tile.row);
 }
 
 export function resolveMarketing(game: GameState) {
@@ -499,7 +557,11 @@ function botWork(game: GameState, player: Player) {
     if (employee.produces) { const options = Object.keys(employee.produces) as Good[]; produce(game, index, options[0], player.id); }
     else if (employee.buyer?.anyDrink) produce(game, index, player.id === 1 ? "beer" : player.id === 2 ? "lemonade" : "soda", player.id);
     else if (employee.buyer) { const source = reachableSources(game, player, employee)[0]; if (source) procureFromSource(game, index, source.id, player.id); }
-    if (employee.campaigns) { const good: Good = player.id === 1 ? "burger" : player.id === 2 ? "pizza" : "soda"; const target = game.houses[(game.round * 3 + player.id) % game.houses.length]; market(game, index, target.id, good, employee.campaigns[0], player.id); }
+    if (employee.campaigns) {
+      const good: Good = player.id === 1 ? "burger" : player.id === 2 ? "pizza" : "soda"; const type = employee.campaigns[0];
+      if (type === "airplane") { const target = game.houses[(game.round * 3 + player.id) % game.houses.length]; market(game, index, target.id, good, type, player.id); }
+      else { const horizontal = validCampaignPlacements(game, index, type, "horizontal", player.id)[0]; const vertical = horizontal ? null : validCampaignPlacements(game, index, type, "vertical", player.id)[0]; if (horizontal || vertical) market(game, index, { ...(horizontal ?? vertical!), orientation: horizontal ? "horizontal" : "vertical" }, good, type, player.id); }
+    }
   }
 }
 
@@ -519,7 +581,7 @@ function continueBotOrderChoices(game: GameState) {
 function beginOrderSelection(game: GameState) {
   const previousOrder = [...game.turnOrder];
   const chooserIds = [...game.players].sort((a, b) => (openSlots(b, game.ceoSlots) + (b.milestones.includes("First Airplane campaign") ? 2 : 0)) - (openSlots(a, game.ceoSlots) + (a.milestones.includes("First Airplane campaign") ? 2 : 0)) || previousOrder.indexOf(a.id) - previousOrder.indexOf(b.id)).map((player) => player.id);
-  game.orderSelection = { chooserIds, positions: Array(game.players.length).fill(null), nextChooserIndex: 0 };
+  game.orderSelection = { chooserIds, positions: Array(game.players.length).fill(null), nextChooserIndex: 0, pendingUserPosition: null };
   game.phase = "order"; continueBotOrderChoices(game);
   if (game.orderSelection.nextChooserIndex < chooserIds.length) addLog(game, "Golden Spoon may choose any unclaimed turn position.", "good");
 }
@@ -527,14 +589,18 @@ function beginOrderSelection(game: GameState) {
 export function chooseTurnPosition(game: GameState, position: number) {
   const selection = game.orderSelection;
   if (game.phase !== "order" || !selection || selection.chooserIds[selection.nextChooserIndex] !== 0 || position < 0 || position >= selection.positions.length || selection.positions[position] !== null) return;
-  selection.positions[position] = 0; selection.nextChooserIndex += 1; addLog(game, `Golden Spoon chooses position ${position + 1}.`, "good");
-  continueBotOrderChoices(game);
+  selection.pendingUserPosition = position;
 }
 
 export function advance(game: GameState) {
   if (game.phase === "setup") return;
   if (game.phase === "restructure") { game.players.slice(1).forEach((bot) => chooseBotActive(game, bot)); activateMilestones(game, game.players[0]); recalcWork(game); beginOrderSelection(game); return; }
-  if (game.phase === "order") { if (!game.orderSelection || game.orderSelection.positions.some((id) => id === null)) return; game.phase = "work"; const userPosition = game.turnOrder.indexOf(0); game.turnOrder.slice(0, userPosition).forEach((id) => botWork(game, game.players[id])); addLog(game, "Working 9–5 begins. Your CEO always has one hire action.", "good"); return; }
+  if (game.phase === "order") {
+    const selection = game.orderSelection; if (!selection || selection.chooserIds[selection.nextChooserIndex] !== 0 || selection.pendingUserPosition === null || selection.positions[selection.pendingUserPosition] !== null) return;
+    selection.positions[selection.pendingUserPosition] = 0; selection.nextChooserIndex += 1; addLog(game, `Golden Spoon locks position ${selection.pendingUserPosition + 1}.`, "good"); continueBotOrderChoices(game);
+    if (selection.positions.some((id) => id === null)) return;
+    game.phase = "work"; const userPosition = game.turnOrder.indexOf(0); game.turnOrder.slice(0, userPosition).forEach((id) => botWork(game, game.players[id])); addLog(game, "Working 9–5 begins. Your CEO always has one hire action.", "good"); return;
+  }
   if (game.phase === "work") { const userPosition = game.turnOrder.indexOf(0); game.turnOrder.slice(userPosition + 1).forEach((id) => botWork(game, game.players[id])); game.phase = "dinner"; addLog(game, "All chains finish working. Houses now choose where to eat."); return; }
   if (game.phase === "dinner") { resolveDinner(game); if (game.bankBreaks < 2) game.phase = "payday"; return; }
   if (game.phase === "payday") { resolvePayday(game); game.phase = "marketing"; return; }
