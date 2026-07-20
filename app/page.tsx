@@ -3,15 +3,15 @@
 import { useMemo, useState } from "react";
 import {
   BadgeDollarSign, Banknote, Beef, Beer, BookOpen, Bot, Building2, Check, ChefHat,
-  ChevronRight, CircleHelp, Citrus, Clock3, Crown, CupSoda, GraduationCap, Hammer,
+  ChevronRight, CircleHelp, Citrus, Clock3, Crown, CupSoda, DoorOpen, GraduationCap, Hammer,
   Info, Mailbox, MapPin, Megaphone, PackageOpen, Pizza, Plane, Play, Radio,
   RefreshCw, Store, Truck, UserMinus, Users, X,
 } from "lucide-react";
 import {
   DRINKS, EMPLOYEES, ENTRY_EMPLOYEES, PHASE_COPY, addGarden,
-  addHouse, advance, capacity, cloneGame, expandRestaurant, fireEmployee, hire,
+  addHouse, advance, canRotateStartingRestaurant, capacity, cloneGame, expandRestaurant, fireEmployee, hire,
   initialGame, isValidRestaurantSpot, market, moveStartingRestaurant, openSlots, placeStartingRestaurant,
-  price, procureFromSource, produce, reachableSources, roadDistance, toggleActive,
+  price, procureFromSource, produce, reachableSources, roadDistance, rotateStartingRestaurant, toggleActive,
   train, validRestaurantPlacements, type CampaignType, type Employee, type GameState,
   type Good,
 } from "./game";
@@ -46,6 +46,13 @@ function GoodPill({ good, count }: { good: Good; count?: number }) {
   return <span className="good-pill" style={{ "--good": color } as React.CSSProperties}><Icon size={13} />{count === undefined ? label : count}</span>;
 }
 
+function entranceSide(restaurant: GameState["players"][number]["restaurants"][number]) {
+  if (restaurant.entranceRow < restaurant.row) return "top";
+  if (restaurant.entranceCol > restaurant.col + 1) return "right";
+  if (restaurant.entranceRow > restaurant.row + 1) return "bottom";
+  return "left";
+}
+
 function Board({ game, mutate }: { game: GameState; mutate: (fn: (next: GameState) => void) => void }) {
   const canMoveStart = game.phase === "restructure" && game.round === 1 && game.players[0].restaurants.length === 1;
   const validSetup = useMemo(() => new Set(validRestaurantPlacements(game, true, canMoveStart ? { playerId: 0, restaurantId: game.players[0].restaurants[0].id } : undefined).map((spot) => `${spot.row},${spot.col}`)), [game, canMoveStart]);
@@ -58,8 +65,8 @@ function Board({ game, mutate }: { game: GameState; mutate: (fn: (next: GameStat
         <span className="house-number">{house.id}</span><Building2 size={18} />{house.garden && <span className="garden">garden</span>}
         <span className="demand-row">{house.demand.map((good, index) => { const Icon = goodMeta[good].icon; return <i key={`${good}-${index}`} style={{ background: goodMeta[good].color }}><Icon size={8} /></i>; })}</span>
       </button>)}
-      {game.sources.map((source) => { const Icon = goodMeta[source.good].icon; return <button key={source.id} className="drink-source" style={{ gridRow: source.row + 1, gridColumn: source.col + 1, "--source": goodMeta[source.good].color } as React.CSSProperties} title={`${goodMeta[source.good].label} source`} onClick={() => mutate((next) => { next.selectedLot = { row: source.row, col: source.col }; next.selectedHouse = null; })}><Icon size={13} /></button>; })}
-      {game.players.flatMap((player) => player.restaurants.map((restaurant) => <div key={`${player.id}-${restaurant.id}`} className={`map-restaurant ${restaurant.open ? "" : "coming-soon"}`} style={{ gridRow: `${restaurant.row + 1} / span 2`, gridColumn: `${restaurant.col + 1} / span 2`, "--chain": player.color } as React.CSSProperties} title={`${player.chain} restaurant${restaurant.open ? "" : " (coming soon)"}`}><Store size={15} /><span>{player.id === 0 ? "YOU" : player.chain.split(" ")[0]}</span><i style={{ gridRow: restaurant.entranceRow + 1, gridColumn: restaurant.entranceCol + 1 }} /></div>))}
+      {game.sources.map((source) => { const Icon = goodMeta[source.good].icon; return <button key={source.id} className="drink-source" style={{ gridRow: source.row + 1, gridColumn: source.col + 1, "--source": goodMeta[source.good].color } as React.CSSProperties} title={`${goodMeta[source.good].label} source`} aria-label={`${goodMeta[source.good].label} source`} onClick={() => mutate((next) => { next.selectedLot = { row: source.row, col: source.col }; next.selectedHouse = null; })}><Icon size={12} /><b>{source.good === "soda" ? "S" : source.good === "lemonade" ? "L" : "B"}</b></button>; })}
+      {game.players.flatMap((player) => player.restaurants.map((restaurant) => { const rotatable = canMoveStart && player.id === 0 && restaurant.id === 1 && canRotateStartingRestaurant(game); const content = <><Store size={15} /><span>{player.id === 0 ? "YOU" : player.chain.split(" ")[0]}</span><i className={`restaurant-entrance entrance-${entranceSide(restaurant)}`} title="Printed entrance"><DoorOpen size={9} /></i></>; const style = { gridRow: `${restaurant.row + 1} / span 2`, gridColumn: `${restaurant.col + 1} / span 2`, "--chain": player.color } as React.CSSProperties; const label = `${player.chain} restaurant, entrance faces ${entranceSide(restaurant)}`; return rotatable ? <button key={`${player.id}-${restaurant.id}`} className="map-restaurant can-rotate" style={style} title="Click to rotate the printed entrance toward another legal road" aria-label={`${label}. Click to rotate`} onClick={() => mutate(rotateStartingRestaurant)}>{content}</button> : <div key={`${player.id}-${restaurant.id}`} className={`map-restaurant ${restaurant.open ? "" : "coming-soon"}`} style={style} title={label}>{content}</div>; }))}
       {game.campaigns.map((campaign) => { const house = game.houses.find((item) => item.id === campaign.targetHouseId); if (!house) return null; const Icon = campaignMeta[campaign.type].icon; return <div key={campaign.id} className="map-campaign" style={{ gridRow: house.row + 1, gridColumn: house.col + 2, background: game.players[campaign.playerId].color }} title={`${campaignMeta[campaign.type].label}: ${goodMeta[campaign.good].label}`}><Icon size={10} /></div>; })}
       {game.board.cells.flat().filter((cell) => cell.kind === "lot").map((cell) => {
         const key = `${cell.row},${cell.col}`; const setupSpot = (game.phase === "setup" || canMoveStart) && validSetup.has(key); const selected = game.selectedLot?.row === cell.row && game.selectedLot?.col === cell.col;
@@ -67,7 +74,7 @@ function Board({ game, mutate }: { game: GameState; mutate: (fn: (next: GameStat
         return <button key={`lot-${key}`} className={`map-lot-button ${setupSpot ? "valid-restaurant" : ""} ${selected ? "selected" : ""}`} style={{ gridRow: cell.row + 1, gridColumn: cell.col + 1 }} onClick={() => setupSpot ? mutate((next) => canMoveStart ? moveStartingRestaurant(next, cell.row, cell.col) : placeStartingRestaurant(next, cell.row, cell.col)) : mutate((next) => { next.selectedLot = selected ? null : { row: cell.row, col: cell.col }; next.selectedHouse = null; })} aria-label={setupSpot ? `${placementLabel} starting at row ${cell.row + 1}, column ${cell.col + 1}` : `Empty lot row ${cell.row + 1}, column ${cell.col + 1}`} />;
       })}
     </div>
-    <div className="board-legend"><span><i className="road-swatch" />Road</span><span><Building2 size={13} />House</span><span><Store size={13} />Restaurant</span>{DRINKS.map((good) => <GoodPill key={good} good={good} />)}<span className="legend-tip">Distance counts tile borders crossed along connected roads.</span></div>
+    <div className="board-legend"><span><i className="road-swatch" />Road</span><span><Building2 size={13} />House</span><span><Store size={13} />Restaurant</span><span><DoorOpen size={13} />Printed entrance</span>{DRINKS.map((good) => <GoodPill key={good} good={good} />)}<span className="legend-tip">Distance starts at the printed entrance and counts tile borders along roads.</span></div>
   </section>;
 }
 
@@ -82,7 +89,7 @@ function PhaseRail({ game, mutate, openRules }: { game: GameState; mutate: (fn: 
     {game.phase === "gameover" ? <div className="winner-panel"><Crown size={28} /><strong>{winner.chain} wins</strong><span>${winner.cash} cash</span></div> : game.phase !== "setup" && <div className="next-up"><Clock3 size={16} /><span><small>NOW</small>{game.phase === "work" ? "Your available actions are below" : "Review the board, then continue"}</span></div>}
     {game.selectedHouse && (() => { const house = game.houses.find((item) => item.id === game.selectedHouse)!; return <div className="house-inspector"><div><Building2 size={16} /><strong>House {house.id}</strong>{house.garden && <span>Garden</span>}</div><p>{house.demand.length ? `Wants ${house.demand.join(" + ")}. A chain must have every item.` : "No demand yet. Marketing can create it."}</p><div className="distance-list">{game.players.map((item) => { const distance = roadDistance(game, item, house); return <span key={item.id}><i style={{ background: item.color }} />{item.chain}<b>{distance === Infinity ? "—" : distance}</b></span>; })}</div></div>; })()}
     {game.selectedLot && <div className="lot-inspector"><MapPin size={15} /><span><strong>Map square</strong>Row {game.selectedLot.row + 1}, column {game.selectedLot.col + 1}</span></div>}
-    <div className="rule-note"><Info size={16} /><p><strong>Why this matters</strong>{game.phase === "setup" ? "Your entrance must touch a road, and no starting restaurant may share an entrance tile with another chain." : game.phase === "restructure" && game.round === 1 ? `Your restaurant is still provisional. Click another highlighted 2×2 area to move it; Lock company makes its position final. You have ${capacity(player, game.ceoSlots)} company slots.` : game.phase === "restructure" ? `You have ${capacity(player, game.ceoSlots)} total slots. Managers must report directly to your ${game.ceoSlots}-slot CEO.` : game.phase === "work" ? `Your current unit price is $${price(player)}. The CEO hire action is always available.` : game.phase === "dinner" ? "Customers compare unit price plus road distance measured in tile borders, not map squares." : game.phase === "marketing" ? "Demand appears after dinner, so advertising prepares customers for a later round." : "The event log records every rule-driven change."}</p></div>
+    <div className="rule-note"><Info size={16} /><p><strong>Why this matters</strong>{game.phase === "setup" ? "Your printed entrance must touch a road, and no starting restaurant may share an entrance tile with another chain." : game.phase === "restructure" && game.round === 1 ? `Your restaurant is still provisional. Click another highlighted 2×2 area to move it, or click the restaurant itself to rotate its printed entrance. Lock company makes both final. You have ${capacity(player, game.ceoSlots)} company slots.` : game.phase === "restructure" ? `You have ${capacity(player, game.ceoSlots)} total slots. Managers must report directly to your ${game.ceoSlots}-slot CEO.` : game.phase === "work" ? `Your current unit price is $${price(player)}. The CEO hire action is always available.` : game.phase === "dinner" ? "Customers compare unit price plus road distance measured in tile borders, not map squares." : game.phase === "marketing" ? "Demand appears after dinner, so advertising prepares customers for a later round." : "The event log records every rule-driven change."}</p></div>
     {game.phase !== "setup" && <button className="primary-action" data-testid="advance-phase" onClick={() => mutate((next) => game.phase === "gameover" ? Object.assign(next, initialGame(next.players[0].reserve, next.players[0].reserveSlots, true), { gameStarted: true }) : advance(next))}>{game.phase === "gameover" ? <RefreshCw size={17} /> : <Play size={17} />}{phase.action}<ChevronRight size={16} /></button>}
     <button className="text-action" onClick={openRules}><BookOpen size={15} /> Open rules reference</button>
     <div className="event-log"><div className="section-label"><span>Event log</span><span>Latest first</span></div>{game.log.slice(0, 9).map((event) => <div key={event.id} className={`event ${event.tone ?? ""}`}><i /><span>{event.text}</span><small>R{event.round}</small></div>)}</div>

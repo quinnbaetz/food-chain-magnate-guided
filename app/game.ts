@@ -320,24 +320,33 @@ export function market(game: GameState, rosterIndex: number, houseId: number, go
   addLog(game, `${player.chain} starts a ${type} advertising ${good} near house ${houseId}.`, playerId === 0 ? "good" : "bot");
 }
 
-function validRestaurantEntrance(game: GameState, row: number, col: number) {
-  const corners = [[row, col], [row, col + 1], [row + 1, col], [row + 1, col + 1]] as [number, number][];
-  for (const [r, c] of corners) for (const [nr, nc] of neighbors(r, c, game.board)) if (game.board.cells[nr][nc].kind === "road") return { row: nr, col: nc };
-  return null;
+function restaurantEntranceCandidates(game: GameState, row: number, col: number) {
+  return [{ row: row - 1, col }, { row, col: col + 2 }, { row: row + 2, col: col + 1 }, { row: row + 1, col: col - 1 }]
+    .filter((point) => point.row >= 0 && point.col >= 0 && point.row < game.board.rows && point.col < game.board.cols && game.board.cells[point.row][point.col].kind === "road");
+}
+
+function validRestaurantEntrances(game: GameState, row: number, col: number, initial: boolean, ignoredRestaurant?: { playerId: number; restaurantId: number }) {
+  return restaurantEntranceCandidates(game, row, col).filter((entrance) => {
+    if (!initial) return true;
+    const entranceTile = tileOf(entrance.row, entrance.col);
+    return !game.players.some((player) => player.restaurants.some((restaurant) => {
+      if (ignoredRestaurant?.playerId === player.id && ignoredRestaurant.restaurantId === restaurant.id) return false;
+      const tile = tileOf(restaurant.entranceRow, restaurant.entranceCol);
+      return tile.row === entranceTile.row && tile.col === entranceTile.col;
+    }));
+  });
 }
 
 export function isValidRestaurantSpot(game: GameState, row: number, col: number, initial = false, ignoredRestaurant?: { playerId: number; restaurantId: number }) {
   if (row < 0 || col < 0 || row + 1 >= game.board.rows || col + 1 >= game.board.cols) return false;
   for (let r = row; r < row + 2; r += 1) for (let c = col; c < col + 2; c += 1) if (game.board.cells[r][c].kind !== "lot" || game.players.some((player) => player.restaurants.some((restaurant) => !(ignoredRestaurant?.playerId === player.id && ignoredRestaurant.restaurantId === restaurant.id) && r >= restaurant.row && r < restaurant.row + 2 && c >= restaurant.col && c < restaurant.col + 2))) return false;
-  const entrance = validRestaurantEntrance(game, row, col); if (!entrance) return false;
-  if (initial) { const entranceTile = tileOf(entrance.row, entrance.col); if (game.players.some((player) => player.restaurants.some((restaurant) => { if (ignoredRestaurant?.playerId === player.id && ignoredRestaurant.restaurantId === restaurant.id) return false; const tile = tileOf(restaurant.entranceRow, restaurant.entranceCol); return tile.row === entranceTile.row && tile.col === entranceTile.col; }))) return false; }
-  return true;
+  return validRestaurantEntrances(game, row, col, initial, ignoredRestaurant).length > 0;
 }
 
 export function validRestaurantPlacements(game: GameState, initial = false, ignoredRestaurant?: { playerId: number; restaurantId: number }) { const result: { row: number; col: number }[] = []; for (let row = 0; row < game.board.rows - 1; row += 1) for (let col = 0; col < game.board.cols - 1; col += 1) if (isValidRestaurantSpot(game, row, col, initial, ignoredRestaurant)) result.push({ row, col }); return result; }
 
 function placeRestaurantAt(game: GameState, player: Player, row: number, col: number, open: boolean, initial: boolean) {
-  if (!isValidRestaurantSpot(game, row, col, initial) || player.restaurants.length >= 3) return false; const entrance = validRestaurantEntrance(game, row, col)!;
+  if (!isValidRestaurantSpot(game, row, col, initial) || player.restaurants.length >= 3) return false; const entrance = validRestaurantEntrances(game, row, col, initial)[0];
   player.restaurants.push({ id: player.restaurants.length + 1, row, col, entranceRow: entrance.row, entranceCol: entrance.col, open });
   addLog(game, `${player.chain} places a restaurant${open ? "" : " (coming soon)"}.`, player.id === 0 ? "good" : "bot"); return true;
 }
@@ -357,9 +366,25 @@ export function moveStartingRestaurant(game: GameState, row: number, col: number
   if (restaurant.row === row && restaurant.col === col) return;
   const ignored = { playerId: player.id, restaurantId: restaurant.id };
   if (!isValidRestaurantSpot(game, row, col, true, ignored)) return;
-  const entrance = validRestaurantEntrance(game, row, col)!;
+  const entrance = validRestaurantEntrances(game, row, col, true, ignored)[0];
   restaurant.row = row; restaurant.col = col; restaurant.entranceRow = entrance.row; restaurant.entranceCol = entrance.col;
   game.selectedLot = null; addLog(game, "Golden Spoon moves its starting restaurant before locking the company.", "good");
+}
+
+export function rotateStartingRestaurant(game: GameState) {
+  const player = game.players[0]; const restaurant = player.restaurants[0];
+  if (game.phase !== "restructure" || game.round !== 1 || !restaurant || player.restaurants.length !== 1) return;
+  const entrances = validRestaurantEntrances(game, restaurant.row, restaurant.col, true, { playerId: player.id, restaurantId: restaurant.id });
+  if (entrances.length < 2) return;
+  const current = entrances.findIndex((entrance) => entrance.row === restaurant.entranceRow && entrance.col === restaurant.entranceCol);
+  const next = entrances[(current + 1) % entrances.length]; restaurant.entranceRow = next.row; restaurant.entranceCol = next.col;
+  addLog(game, "Golden Spoon rotates its printed entrance toward another road.", "good");
+}
+
+export function canRotateStartingRestaurant(game: GameState) {
+  const player = game.players[0]; const restaurant = player.restaurants[0];
+  if (game.phase !== "restructure" || game.round !== 1 || !restaurant || player.restaurants.length !== 1) return false;
+  return validRestaurantEntrances(game, restaurant.row, restaurant.col, true, { playerId: player.id, restaurantId: restaurant.id }).length > 1;
 }
 
 export function expandRestaurant(game: GameState, rosterIndex: number, row: number, col: number) {
