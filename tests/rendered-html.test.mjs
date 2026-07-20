@@ -59,6 +59,7 @@ test("keeps the base-game roster, goods, and map data in source", async () => {
   assert.match(page, /Select a highlighted roadside/);
   assert.match(page, /Undo last action/);
   assert.match(page, /collects from every printed source/);
+  assert.match(page, /ROAD DISTANCE · TILE BORDERS CROSSED/);
   assert.match(page, /No route needed/);
   assert.match(game, /MILESTONE_BONUSES/);
   assert.match(page, /BONUSES ARE MANDATORY/);
