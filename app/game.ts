@@ -324,12 +324,44 @@ export function reachableSources(game: GameState, player: Player, employee: Empl
   return game.sources.filter((source) => neighbors(source.row, source.col, game.board).some(([row, col]) => game.board.cells[row][col].kind === "road" && (costs.get(`${row},${col}`) ?? Infinity) <= maxRange));
 }
 
+function roadRoute(game: GameState, player: Player, employee: Employee, source: DrinkSource) {
+  const bonus = player.milestones.includes("First Cart Operator played") ? 1 : 0; const maxRange = (employee.buyer?.range ?? 0) + bonus;
+  const starts = openEntrances(player); const targets = new Set(neighbors(source.row, source.col, game.board).filter(([row, col]) => game.board.cells[row][col].kind === "road").map(([row, col]) => `${row},${col}`));
+  const best = new Map<string, { cost: number; steps: number }>(); const previous = new Map<string, string>(); const queue = starts.map((start) => ({ ...start, cost: 0, steps: 0 }));
+  starts.forEach((start) => best.set(`${start.row},${start.col}`, { cost: 0, steps: 0 }));
+  let destination: string | null = null;
+  while (queue.length) {
+    queue.sort((a, b) => a.cost - b.cost || a.steps - b.steps); const current = queue.shift()!; const currentKey = `${current.row},${current.col}`;
+    const known = best.get(currentKey); if (!known || known.cost !== current.cost || known.steps !== current.steps) continue;
+    if (targets.has(currentKey)) { destination = currentKey; break; }
+    for (const [row, col] of neighbors(current.row, current.col, game.board)) {
+      if (game.board.cells[row][col].kind !== "road") continue;
+      const fromTile = tileOf(current.row, current.col); const toTile = tileOf(row, col); const cost = current.cost + (fromTile.row !== toTile.row || fromTile.col !== toTile.col ? 1 : 0); const steps = current.steps + 1; const key = `${row},${col}`; const old = best.get(key);
+      if (cost <= maxRange && (!old || cost < old.cost || (cost === old.cost && steps < old.steps))) { best.set(key, { cost, steps }); previous.set(key, currentKey); queue.push({ row, col, cost, steps }); }
+    }
+  }
+  if (!destination) return [];
+  const path: { row: number; col: number }[] = [];
+  for (let key: string | undefined = destination; key; key = previous.get(key)) { const [row, col] = key.split(",").map(Number); path.push({ row, col }); }
+  return path.reverse();
+}
+
+export function sourcesOnBuyerRoute(game: GameState, player: Player, employee: Employee, sourceId: string) {
+  const target = game.sources.find((source) => source.id === sourceId);
+  if (!target || !employee.buyer || employee.buyer.anyDrink) return [];
+  if (employee.buyer.fly) return [target];
+  const path = new Set(roadRoute(game, player, employee, target).map((cell) => `${cell.row},${cell.col}`));
+  return game.sources.filter((source) => neighbors(source.row, source.col, game.board).some(([row, col]) => path.has(`${row},${col}`)));
+}
+
 export function procureFromSource(game: GameState, rosterIndex: number, sourceId: string, playerId = 0) {
   const player = game.players[playerId]; const employee = EMPLOYEES[player.roster[rosterIndex]]; const source = game.sources.find((item) => item.id === sourceId);
   if (!source || !employee?.buyer || !reachableSources(game, player, employee).some((item) => item.id === sourceId) || (playerId === 0 && !game.work.produced.includes(rosterIndex))) return;
-  const amount = employee.buyer.amount + (player.milestones.includes("First Errand Boy played") ? 1 : 0); player.stock[source.good] += amount;
+  const routeSources = sourcesOnBuyerRoute(game, player, employee, sourceId); if (!routeSources.length) return;
+  const amount = employee.buyer.amount + (player.milestones.includes("First Errand Boy played") ? 1 : 0); routeSources.forEach((item) => { player.stock[item.good] += amount; });
   if (playerId === 0) game.work.produced = game.work.produced.filter((index) => index !== rosterIndex);
-  addLog(game, `${player.chain} collects ${amount} ${source.good} from source ${source.id}.`, playerId === 0 ? "good" : "bot");
+  const haul = DRINKS.map((good) => ({ good, count: routeSources.filter((item) => item.good === good).length * amount })).filter((item) => item.count).map((item) => `${item.count} ${item.good}`).join(" + ");
+  addLog(game, `${player.chain} runs a route ending at source ${source.id} and collects ${haul} from ${routeSources.length} source${routeSources.length === 1 ? "" : "s"}.`, playerId === 0 ? "good" : "bot");
 }
 
 function campaignDimensions(type: CampaignType, orientation: CampaignOrientation = "horizontal") {

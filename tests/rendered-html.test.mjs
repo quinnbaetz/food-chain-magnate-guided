@@ -51,11 +51,14 @@ test("keeps the base-game roster, goods, and map data in source", async () => {
   assert.match(game, /pendingUserPosition/);
   assert.match(game, /validCampaignPlacements/);
   assert.match(game, /campaignCells/);
+  assert.match(game, /sourcesOnBuyerRoute/);
   assert.match(page, /Move restaurant/);
   assert.match(page, /Printed entrance/);
   assert.match(page, /TURN ORDER TRACK/);
   assert.match(page, /selection stays changeable/);
   assert.match(page, /Select a highlighted roadside/);
+  assert.match(page, /Undo last action/);
+  assert.match(page, /collects from every printed source/);
   assert.match(page, /No route needed/);
   assert.match(game, /MILESTONE_BONUSES/);
   assert.match(page, /BONUSES ARE MANDATORY/);
