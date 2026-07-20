@@ -113,10 +113,12 @@ export type Player = {
 };
 export type Campaign = { id: number; playerId: number; targetHouseId: number; good: Good; type: CampaignType; remaining: number; eternal?: boolean; marketeerIndex: number };
 export type WorkState = { hires: number; training: number; produced: number[]; marketed: number[]; builders: number[]; restaurantManagers: number[]; hiresMade: number; botsActed: number[] };
+export type OrderSelection = { chooserIds: number[]; positions: (number | null)[]; nextChooserIndex: number };
 export type GameState = {
   round: number; phase: Phase; bank: number; bankBreaks: number; ceoSlots: number;
   players: Player[]; board: BoardState; houses: House[]; sources: DrinkSource[]; campaigns: Campaign[]; turnOrder: number[];
   selectedHouse: number | null; selectedLot: { row: number; col: number } | null; work: WorkState; supply: Record<string, number>;
+  orderSelection: OrderSelection | null;
   claimed: string[]; claimedThisRound: Record<string, number[]>;
   log: { id: number; round: number; text: string; tone?: "good" | "warn" | "bot" }[]; tutorial: boolean; gameStarted: boolean;
 };
@@ -176,7 +178,7 @@ export function initialGame(reserve = 200, reserveSlots = 3, randomizeMap = fals
   const game: GameState = {
     round: 1, phase: "setup", bank: 200, bankBreaks: 0, ceoSlots: 3,
     players: playerSeeds.map(([name, chain, color], id) => ({ id, name, chain, color, cash: 0, reserve: id === 0 ? reserve : [100, 300, 200][id - 1], reserveSlots: id === 0 ? reserveSlots : [2, 4, 3][id - 1], roster: [], active: [], stock: emptyStock(), milestones: [], restaurants: [], earnedThisRound: 0 })),
-    board, houses: board.houses, sources: board.sources, campaigns: [], turnOrder: [0, 1, 2, 3], selectedHouse: null, selectedLot: null,
+    board, houses: board.houses, sources: board.sources, campaigns: [], turnOrder: [0, 1, 2, 3], selectedHouse: null, selectedLot: null, orderSelection: null,
     work: emptyWork(), supply: Object.fromEntries(Object.values(EMPLOYEES).map((employee) => [employee.id, employee.supply])),
     claimed: [], claimedThisRound: {}, tutorial: true, gameStarted: false,
     log: [{ id: 1, round: 1, text: "The 4×4 city was built from sixteen randomly oriented 5×5 base-game tiles. Bots placed in reverse turn order; choose your restaurant.", tone: "good" }],
@@ -481,10 +483,38 @@ function botWork(game: GameState, player: Player) {
   }
 }
 
+function continueBotOrderChoices(game: GameState) {
+  const selection = game.orderSelection; if (!selection) return;
+  while (selection.nextChooserIndex < selection.chooserIds.length && selection.chooserIds[selection.nextChooserIndex] !== 0) {
+    const botId = selection.chooserIds[selection.nextChooserIndex]; const position = selection.positions.findIndex((id) => id === null);
+    selection.positions[position] = botId; selection.nextChooserIndex += 1;
+    addLog(game, `${game.players[botId].chain} chooses position ${position + 1}.`, "bot");
+  }
+  if (selection.nextChooserIndex === selection.chooserIds.length) {
+    game.turnOrder = selection.positions as number[];
+    addLog(game, `Turn order set: ${game.turnOrder.map((id) => game.players[id].chain).join(" → ")}.`);
+  }
+}
+
+function beginOrderSelection(game: GameState) {
+  const previousOrder = [...game.turnOrder];
+  const chooserIds = [...game.players].sort((a, b) => (openSlots(b, game.ceoSlots) + (b.milestones.includes("First Airplane campaign") ? 2 : 0)) - (openSlots(a, game.ceoSlots) + (a.milestones.includes("First Airplane campaign") ? 2 : 0)) || previousOrder.indexOf(a.id) - previousOrder.indexOf(b.id)).map((player) => player.id);
+  game.orderSelection = { chooserIds, positions: Array(game.players.length).fill(null), nextChooserIndex: 0 };
+  game.phase = "order"; continueBotOrderChoices(game);
+  if (game.orderSelection.nextChooserIndex < chooserIds.length) addLog(game, "Golden Spoon may choose any unclaimed turn position.", "good");
+}
+
+export function chooseTurnPosition(game: GameState, position: number) {
+  const selection = game.orderSelection;
+  if (game.phase !== "order" || !selection || selection.chooserIds[selection.nextChooserIndex] !== 0 || position < 0 || position >= selection.positions.length || selection.positions[position] !== null) return;
+  selection.positions[position] = 0; selection.nextChooserIndex += 1; addLog(game, `Golden Spoon chooses position ${position + 1}.`, "good");
+  continueBotOrderChoices(game);
+}
+
 export function advance(game: GameState) {
   if (game.phase === "setup") return;
-  if (game.phase === "restructure") { game.players.slice(1).forEach((bot) => chooseBotActive(game, bot)); activateMilestones(game, game.players[0]); game.turnOrder = [...game.players].sort((a, b) => (openSlots(b, game.ceoSlots) + (b.milestones.includes("First Airplane campaign") ? 2 : 0)) - (openSlots(a, game.ceoSlots) + (a.milestones.includes("First Airplane campaign") ? 2 : 0)) || game.turnOrder.indexOf(a.id) - game.turnOrder.indexOf(b.id)).map((player) => player.id); recalcWork(game); game.phase = "order"; addLog(game, `Order of business: ${game.turnOrder.map((id) => game.players[id].chain).join(" → ")}.`); return; }
-  if (game.phase === "order") { game.phase = "work"; const userPosition = game.turnOrder.indexOf(0); game.turnOrder.slice(0, userPosition).forEach((id) => botWork(game, game.players[id])); addLog(game, "Working 9–5 begins. Your CEO always has one hire action.", "good"); return; }
+  if (game.phase === "restructure") { game.players.slice(1).forEach((bot) => chooseBotActive(game, bot)); activateMilestones(game, game.players[0]); recalcWork(game); beginOrderSelection(game); return; }
+  if (game.phase === "order") { if (!game.orderSelection || game.orderSelection.positions.some((id) => id === null)) return; game.phase = "work"; const userPosition = game.turnOrder.indexOf(0); game.turnOrder.slice(0, userPosition).forEach((id) => botWork(game, game.players[id])); addLog(game, "Working 9–5 begins. Your CEO always has one hire action.", "good"); return; }
   if (game.phase === "work") { const userPosition = game.turnOrder.indexOf(0); game.turnOrder.slice(userPosition + 1).forEach((id) => botWork(game, game.players[id])); game.phase = "dinner"; addLog(game, "All chains finish working. Houses now choose where to eat."); return; }
   if (game.phase === "dinner") { resolveDinner(game); if (game.bankBreaks < 2) game.phase = "payday"; return; }
   if (game.phase === "payday") { resolvePayday(game); game.phase = "marketing"; return; }
@@ -496,7 +526,7 @@ export function advance(game: GameState) {
       else if (player.milestones.includes("First to throw away drink/food") && total > 10) { let excess = total - 10; for (const good of GOODS) { const discard = Math.min(excess, player.stock[good]); player.stock[good] -= discard; excess -= discard; } }
       player.active = []; player.earnedThisRound = 0; player.restaurants.forEach((restaurant) => { restaurant.open = true; });
     }
-    game.claimed.push(...Object.keys(game.claimedThisRound)); game.claimedThisRound = {}; game.round += 1; game.phase = "restructure"; game.work = emptyWork(); game.selectedHouse = null; game.selectedLot = null; addLog(game, `Round ${game.round} begins. Build a fresh company structure.`); return;
+    game.claimed.push(...Object.keys(game.claimedThisRound)); game.claimedThisRound = {}; game.round += 1; game.phase = "restructure"; game.work = emptyWork(); game.orderSelection = null; game.selectedHouse = null; game.selectedLot = null; addLog(game, `Round ${game.round} begins. Build a fresh company structure.`); return;
   }
 }
 
