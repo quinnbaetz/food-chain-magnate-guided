@@ -326,15 +326,15 @@ function validRestaurantEntrance(game: GameState, row: number, col: number) {
   return null;
 }
 
-export function isValidRestaurantSpot(game: GameState, row: number, col: number, initial = false) {
+export function isValidRestaurantSpot(game: GameState, row: number, col: number, initial = false, ignoredRestaurant?: { playerId: number; restaurantId: number }) {
   if (row < 0 || col < 0 || row + 1 >= game.board.rows || col + 1 >= game.board.cols) return false;
-  for (let r = row; r < row + 2; r += 1) for (let c = col; c < col + 2; c += 1) if (game.board.cells[r][c].kind !== "lot" || game.players.some((player) => player.restaurants.some((restaurant) => r >= restaurant.row && r < restaurant.row + 2 && c >= restaurant.col && c < restaurant.col + 2))) return false;
+  for (let r = row; r < row + 2; r += 1) for (let c = col; c < col + 2; c += 1) if (game.board.cells[r][c].kind !== "lot" || game.players.some((player) => player.restaurants.some((restaurant) => !(ignoredRestaurant?.playerId === player.id && ignoredRestaurant.restaurantId === restaurant.id) && r >= restaurant.row && r < restaurant.row + 2 && c >= restaurant.col && c < restaurant.col + 2))) return false;
   const entrance = validRestaurantEntrance(game, row, col); if (!entrance) return false;
-  if (initial) { const entranceTile = tileOf(entrance.row, entrance.col); if (game.players.some((player) => player.restaurants.some((restaurant) => { const tile = tileOf(restaurant.entranceRow, restaurant.entranceCol); return tile.row === entranceTile.row && tile.col === entranceTile.col; }))) return false; }
+  if (initial) { const entranceTile = tileOf(entrance.row, entrance.col); if (game.players.some((player) => player.restaurants.some((restaurant) => { if (ignoredRestaurant?.playerId === player.id && ignoredRestaurant.restaurantId === restaurant.id) return false; const tile = tileOf(restaurant.entranceRow, restaurant.entranceCol); return tile.row === entranceTile.row && tile.col === entranceTile.col; }))) return false; }
   return true;
 }
 
-export function validRestaurantPlacements(game: GameState, initial = false) { const result: { row: number; col: number }[] = []; for (let row = 0; row < game.board.rows - 1; row += 1) for (let col = 0; col < game.board.cols - 1; col += 1) if (isValidRestaurantSpot(game, row, col, initial)) result.push({ row, col }); return result; }
+export function validRestaurantPlacements(game: GameState, initial = false, ignoredRestaurant?: { playerId: number; restaurantId: number }) { const result: { row: number; col: number }[] = []; for (let row = 0; row < game.board.rows - 1; row += 1) for (let col = 0; col < game.board.cols - 1; col += 1) if (isValidRestaurantSpot(game, row, col, initial, ignoredRestaurant)) result.push({ row, col }); return result; }
 
 function placeRestaurantAt(game: GameState, player: Player, row: number, col: number, open: boolean, initial: boolean) {
   if (!isValidRestaurantSpot(game, row, col, initial) || player.restaurants.length >= 3) return false; const entrance = validRestaurantEntrance(game, row, col)!;
@@ -350,6 +350,17 @@ function autoPlaceBotRestaurants(game: GameState) {
 }
 
 export function placeStartingRestaurant(game: GameState, row: number, col: number) { if (game.phase !== "setup") return; if (placeRestaurantAt(game, game.players[0], row, col, true, true)) { game.phase = "restructure"; game.selectedLot = null; addLog(game, "All starting restaurants are placed. Build your first company structure.", "good"); } }
+
+export function moveStartingRestaurant(game: GameState, row: number, col: number) {
+  const player = game.players[0]; const restaurant = player.restaurants[0];
+  if (game.phase !== "restructure" || game.round !== 1 || !restaurant || player.restaurants.length !== 1) return;
+  if (restaurant.row === row && restaurant.col === col) return;
+  const ignored = { playerId: player.id, restaurantId: restaurant.id };
+  if (!isValidRestaurantSpot(game, row, col, true, ignored)) return;
+  const entrance = validRestaurantEntrance(game, row, col)!;
+  restaurant.row = row; restaurant.col = col; restaurant.entranceRow = entrance.row; restaurant.entranceCol = entrance.col;
+  game.selectedLot = null; addLog(game, "Golden Spoon moves its starting restaurant before locking the company.", "good");
+}
 
 export function expandRestaurant(game: GameState, rosterIndex: number, row: number, col: number) {
   if (!game.work.restaurantManagers.includes(rosterIndex)) return; const employee = EMPLOYEES[game.players[0].roster[rosterIndex]];

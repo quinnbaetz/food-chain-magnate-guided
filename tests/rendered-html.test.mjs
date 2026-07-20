@@ -45,5 +45,7 @@ test("keeps the base-game roster, goods, and map data in source", async () => {
   assert.match(game, /Array\.from\(\{ length: 20 \}/);
   assert.match(page, /ENTRY_EMPLOYEES\.map/);
   assert.match(page, /DRINKS\.map/);
+  assert.match(game, /moveStartingRestaurant/);
+  assert.match(page, /Move restaurant/);
   assert.match(layout, /Food Chain Magnate · Guided Tabletop/);
 });
